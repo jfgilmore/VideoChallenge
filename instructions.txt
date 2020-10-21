@@ -1,0 +1,15 @@
+1. Build a simple react native app to record and upload videos on firebase.
+(App should be compatible with the latest Xcode and Android versions).
+Feel free to use any third party library to complete this task.
+App should support both iOS and android.
+
+2. Download the latest video and show it in the app
+(latest video, means the last uploaded video)
+Would be great to have:
+- Compression of HD Videos into 480p, before uploading
+- Batch downloading
+- Caching
+
+Once you have completed these app(s) please provide us with the source
+code as well as deployable builds (zip file) and email to:
+matthew@360app.io Deadline: Thursday 5.00 pm
