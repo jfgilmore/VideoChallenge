@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import {
   useDeviceOrientation,
-  useCameraRoll,
+  // useCameraRoll,
 } from "@react-native-community/hooks";
 import {
   CAMERA,
@@ -20,49 +20,55 @@ import {
 } from "expo-permissions";
 import { Camera } from "expo-camera";
 import Video from "expo-av";
-import FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system";
+import Toast from "react-native-simple-toast";
 import useToggle from "./components/custom_hooks/toggle";
 
 export default function App() {
-  // const [photos, getPhotos, saveToCameraRoll] = useCameraRoll();
   const camera = useRef();
   const [record, toggleRecord] = useToggle(false);
   const [openCamera, toggleOpenCamera] = useToggle(false);
   const { landscape } = useDeviceOrientation();
-  const lastVideo = async () => {
-    const result = await FileSystem.getInfoAsync(
-      FileSystem.cacheDirectory() + "lastVideo.mp4"
-    );
-    console.log("result:", result);
-    return result && FileSystem.cacheDirectory() + "lastVideo.mp4";
+  const [activeVideo, setActiveVideo] = useState("");
+  // const [photos, getPhotos, saveToCameraRoll] = useCameraRoll();
+  const appDir = FileSystem.cacheDirectory + "video_challenge/";
+  const ensureDirExists = async () => {
+    const dirInfo = await FileSystem.getInfoAsync(appDir);
+    if (!dirInfo.exists) {
+      Toast.show("App directory doesn't exist, creating...", Toast.LONG);
+      await FileSystem.makeDirectoryAsync(appDir, { intermediates: true });
+    }
   };
-  const [activeVideo, setActiveVideo] = useState(null);
   const [
-    permissions,
+    permissions = "",
     askPermissions,
     getPermissions,
   ] = usePermissions(AUDIO_RECORDING, CAMERA, CAMERA_ROLL, { ask: true });
 
+  let count = 1;
   useEffect(() => {
     (async () => {
       try {
-        // while (status !== "granted") {
         await askPermissions();
 
-        if (permissions.status.toString() !== "granted") {
-          Alert.alert(
-            "Permission error",
-            "Permission to use camera and record audio required to record video",
-            [
-              { text: "Retry", onPress: () => askPermissions() },
-              { text: "cancel" },
-            ]
-          );
+        if (permissions.status !== "granted") {
+          count = 0;
         }
       } catch (e) {
-        console.log("error:", e);
+        Toast.showWithGravity(
+          "You can allow permissions later in settings",
+          Toast.LONG,
+          Toast.TOP
+        );
+        console.log("permissions error:", e);
       }
+
+      return () => {
+        permissions.status = "granted";
+      };
     })();
+
+    // ToDo: implement cleanup method
   }, []);
 
   // const [downloadProgress, setDownloadProgress] = useState();
@@ -78,9 +84,10 @@ export default function App() {
   // callback
   //   )
   // };
-  const handleClose = () => {
+  const handleClose = async () => {
     if (record) {
       toggleRecord();
+      await camera.current.stopRecording();
     }
     toggleOpenCamera();
   };
@@ -97,12 +104,27 @@ export default function App() {
         if (camera) {
           console.log("record");
           toggleRecord();
+          ensureDirExists();
           const data = await camera.current.recordAsync(options);
 
           if (data.uri) {
-            FileSystem.data.uri;
-            setActiveVideo(data.uri);
             console.log(data);
+            const newUri = appDir + "sample.mp4";
+            const done = await FileSystem.copyAsync({
+              from: data.uri,
+              to: newUri,
+            });
+            console.log(1);
+            console.log(done);
+            // if (done) {
+            console.log(2);
+            Toast.show("Video saved", Toast.TOP);
+            setActiveVideo(newUri);
+            console.log(newUri);
+            // } else {
+            console.log(3);
+            Toast.showWithGravity("Save failed", Toast.LONG, Toast.TOP);
+            // }
           }
         }
       } else {
@@ -117,8 +139,6 @@ export default function App() {
     }
   };
 
-  // console.log("camcam", camera);
-  // console.log("vidvid", activeVideo);
   return (
     <View style={styles.container}>
       {openCamera ? (
@@ -150,7 +170,7 @@ export default function App() {
             <Text style={styles.titleText}>Get ready...</Text>
           </View>
           <Button title="Make a video" onPress={toggleOpenCamera}></Button>
-          {activeVideo ? (
+          {activeVideo !== "" ? (
             <Video
               source={{
                 uri: activeVideo,
