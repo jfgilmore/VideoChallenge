@@ -1,4 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
+import * as FileSystem from "expo-file-system";
+import * as FirebaseCore from "expo-firebase-core";
+import firebase from "firebase";
+import Toast from "react-native-simple-toast";
 import {
   View,
   StyleSheet,
@@ -6,7 +10,8 @@ import {
   Button,
   TouchableOpacity,
   StatusBar,
-  Alert,
+  Dimensions,
+  LogBox,
 } from "react-native";
 import {
   useDeviceOrientation,
@@ -19,40 +24,43 @@ import {
   usePermissions,
 } from "expo-permissions";
 import { Camera } from "expo-camera";
-import Video from "expo-av";
-import * as FileSystem from "expo-file-system";
-import Toast from "react-native-simple-toast";
+import { Video } from "expo-av";
 import useToggle from "./components/custom_hooks/toggle";
+
+// Ignore firebase caused long timeout warnings
+LogBox.ignoreLogs(["Setting a timer"]);
 
 export default function App() {
   const camera = useRef();
   const [record, toggleRecord] = useToggle(false);
   const [openCamera, toggleOpenCamera] = useToggle(false);
   const { landscape } = useDeviceOrientation();
+  const appDir = FileSystem.cacheDirectory;
   const [activeVideo, setActiveVideo] = useState("");
   // const [photos, getPhotos, saveToCameraRoll] = useCameraRoll();
-  const appDir = FileSystem.cacheDirectory + "video_challenge/";
-  const ensureDirExists = async () => {
-    const dirInfo = await FileSystem.getInfoAsync(appDir);
-    if (!dirInfo.exists) {
-      Toast.show("App directory doesn't exist, creating...", Toast.LONG);
-      await FileSystem.makeDirectoryAsync(appDir, { intermediates: true });
-    }
+  const ensureFileExists = async (path) => {
+    try {
+      const dirInfo = await FileSystem.getInfoAsync(path);
+      if (!dirInfo.exists()) {
+        return newUri;
+      }
+      return false;
+    } catch (e) {}
   };
-  const [
-    permissions = "",
-    askPermissions,
-    getPermissions,
-  ] = usePermissions(AUDIO_RECORDING, CAMERA, CAMERA_ROLL, { ask: true });
+  const [permissions = "", askPermissions, getPermissions] = usePermissions(
+    [AUDIO_RECORDING, CAMERA, CAMERA_ROLL],
+    { ask: true }
+  );
 
-  let count = 1;
+  // ToDo: Debug storage
+  const [storage, setStorage] = useState([]);
+
   useEffect(() => {
     (async () => {
       try {
-        await askPermissions();
-
+        await getPermissions();
         if (permissions.status !== "granted") {
-          count = 0;
+          async () => await askPermissions();
         }
       } catch (e) {
         Toast.showWithGravity(
@@ -60,30 +68,76 @@ export default function App() {
           Toast.LONG,
           Toast.TOP
         );
-        console.log("permissions error:", e);
+        Toast.showWithGravity(`permissions error: ${e}`);
       }
-
-      return () => {
-        permissions.status = "granted";
-      };
     })();
 
+    (async () => {
+      try {
+        firebase.initializeApp(FirebaseCore.DEFAULT_WEB_APP_OPTIONS);
+        setStorage(firebase.storage());
+        // readData(false, firebase.storage());
+        // setActiveVideo();
+      } catch (e) {
+        // ToDO: handle firebase init errors
+        // Toast.showWithGravity("Welcome", Toast.LONG, Toast.TOP);
+        // Toast.showWithGravity(`Download error: ${e}`);
+      }
+    })();
+
+    return () => {
+      permissions.status = "granted";
+    };
     // ToDo: implement cleanup method
-  }, []);
+  }, [permissions.status, storage]);
 
-  // const [downloadProgress, setDownloadProgress] = useState();
-  // const callback = async () => {
-  // const progress = downloadProgress.totalBytesWritten / downloadProgress.totalBytesExpectedToWrite;
-  // setDownloadProgress(progress)
-  // };
+  const readData = async (video = false, storage) => {
+    const storageRef = await storage.ref(`videos/${video}`);
+    try {
+      if (!video) {
+        let list = await storageRef.child("videos/").listAll();
+        video = list.items[0];
+        if (!video) {
+          return;
+        }
+      }
 
-  // const resumableDownload = FileSystem.createDownloadResumable(
-  // Last firebase upload
-  // Filesystem.documentDirectory + filename
-  // {},
-  // callback
-  //   )
-  // };
+      storageRef
+        .child(`videos/${video}`)
+        .getDownloadURL()
+        .then(function (url) {
+          // This can be downloaded directly:
+          var xhr = new XMLHttpRequest();
+          xhr.responseType = "blob";
+          xhr.onload = function (event) {
+            var blob = xhr.response;
+          };
+          xhr.open("GET", url);
+          xhr.send();
+
+          // ToDo: complete download of last video
+          // FileSystem.downloadAsync
+        });
+    } catch (error) {
+      // Handle any errors
+    }
+  };
+
+  const writeData = async (video) => {
+    try {
+      const storageRef = await storage.ref();
+      const vidRef = await storageRef.child(`${video.id}.mp4`);
+      // const metadata = { contentType: "video/mp4" };
+      await vidRef.putString(video.blob, "raw").then((res) => {
+        console.log(res);
+        return true;
+      });
+    } catch (e) {
+      console.log("write data error:", e);
+      return false;
+    }
+  };
+
   const handleClose = async () => {
     if (record) {
       toggleRecord();
@@ -95,47 +149,55 @@ export default function App() {
   const handleRecord = async () => {
     try {
       const { status = null } = await Camera.requestPermissionsAsync();
-      console.log(status);
       if (!record && status === "granted") {
         const options = {
           quality: Camera.Constants.VideoQuality["480p"],
         };
 
         if (camera) {
-          console.log("record");
           toggleRecord();
-          ensureDirExists();
+          ensureFileExists();
           const data = await camera.current.recordAsync(options);
 
           if (data.uri) {
-            console.log(data);
-            const newUri = appDir + "sample.mp4";
-            const done = await FileSystem.copyAsync({
+            const newUri = appDir + "last.mp4";
+            await FileSystem.copyAsync({
               from: data.uri,
               to: newUri,
             });
-            console.log(1);
-            console.log(done);
-            // if (done) {
-            console.log(2);
-            Toast.show("Video saved", Toast.TOP);
-            setActiveVideo(newUri);
-            console.log(newUri);
-            // } else {
-            console.log(3);
-            Toast.showWithGravity("Save failed", Toast.LONG, Toast.TOP);
-            // }
+            const done = ensureFileExists(newUri);
+            if (done) {
+              const blob = await FileSystem.readAsStringAsync(newUri, {
+                encoding: FileSystem.EncodingType.Base64,
+              });
+              if (blob) {
+                const newVideo = {
+                  id: Date.now(),
+                  uri: `${newUri}`,
+                  blob: blob,
+                };
+                Toast.showWithGravity(
+                  "Uploading... please wait",
+                  Toast.LONG,
+                  Toast.CENTER
+                );
+                setActiveVideo(newVideo.uri);
+                await writeData(newVideo);
+                Toast.showWithGravity("Video saved", Toast.LONG, Toast.CENTER);
+              }
+            } else {
+              Toast.showWithGravity("Save failed", Toast.LONG, Toast.TOP);
+            }
           }
         }
       } else {
         if (camera) {
-          console.log("stop");
           await camera.current.stopRecording();
           toggleRecord();
         }
       }
     } catch (e) {
-      console.log("recording error:", e);
+      Toast.show(`Recording error: ${e}`);
     }
   };
 
@@ -165,16 +227,21 @@ export default function App() {
           </View>
         </Camera>
       ) : (
-        <View style={styles.container}>
+        <>
           <View style={styles.title} height={landscape ? "100vh" : "30%"}>
             <Text style={styles.titleText}>Get ready...</Text>
           </View>
-          <Button title="Make a video" onPress={toggleOpenCamera}></Button>
+          <Button
+            title="Record new video"
+            style={styles.btn}
+            onPress={toggleOpenCamera}
+          ></Button>
           {activeVideo !== "" ? (
             <Video
               source={{
                 uri: activeVideo,
               }}
+              // id={activeVideo.id}
               rate={1.0}
               volume={1.0}
               isMuted={true}
@@ -182,17 +249,12 @@ export default function App() {
               shouldPlay={false}
               isLooping={false}
               useNativeControls
-              style={{
-                flex: 1,
-                width: 300,
-                height: 300,
-                backgroundColor: "black",
-              }}
+              style={styles.viewer}
             />
           ) : (
             <></>
           )}
-        </View>
+        </>
       )}
       <StatusBar style="auto" />
     </View>
@@ -218,6 +280,15 @@ const styles = StyleSheet.create({
   titleText: {
     color: "white",
     fontSize: 50,
+  },
+  btn: {
+    marginBottom: "5%",
+  },
+  viewer: {
+    flex: 1,
+    width: Dimensions.get("screen").width,
+    height: 300,
+    backgroundColor: "black",
   },
   bodyText: {
     marginTop: 20,

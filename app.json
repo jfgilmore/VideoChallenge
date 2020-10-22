@@ -18,7 +18,18 @@
       "supportsTablet": true
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "config": {
+        "firebase": {
+          "projectId": "videochallenge-9326d",
+          "appId": "1:498892029230:web:5900e5e8853c00d9b2cebf",
+          "databaseURL": "https://videochallenge-9326d.firebaseio.com",
+          "storageBucket": "videochallenge-9326d.appspot.com",
+          "apiKey": "AIzaSyBRjbESM_vK3G_CYxFtLVBB1DfMcQOqc74",
+          "authDomain": "videochallenge-9326d.firebaseapp.com",
+          "messagingSenderId": "498892029230"
+        }
+      }
     }
   }
 }
